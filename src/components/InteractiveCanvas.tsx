@@ -122,16 +122,16 @@ const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
     });
   };
 
-  // Gesture detection functions
+  // Enhanced Gesture Detection Functions
   const detectCircleGesture = (points: Array<{ x: number; y: number; time: number }>): boolean => {
-    if (points.length < 12) return false;
+    if (points.length < 8) return false;
     
     const firstPoint = points[0];
     const lastPoint = points[points.length - 1];
     const closureDistance = Math.sqrt(Math.pow(lastPoint.x - firstPoint.x, 2) + Math.pow(lastPoint.y - firstPoint.y, 2));
     
     // Check if start and end points are reasonably close (circle closure)
-    if (closureDistance > 60) return false;
+    if (closureDistance > 40) return false;
     
     // Calculate bounding box to ensure minimum size
     const minX = Math.min(...points.map(p => p.x));
@@ -142,9 +142,9 @@ const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
     const height = maxY - minY;
     
     // Require minimum size and roughly circular proportions
-    if (width < 40 || height < 40) return false;
+    if (width < 30 || height < 30) return false;
     const aspectRatio = Math.max(width, height) / Math.min(width, height);
-    if (aspectRatio > 1.8) return false;
+    if (aspectRatio > 1.5) return false;
     
     // Calculate center point
     const centerX = (minX + maxX) / 2;
@@ -157,7 +157,7 @@ const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
     });
     avgRadius /= points.length;
     
-    // Check radius variance (circular consistency)
+    // Check radius variance (circular consistency) - more lenient for natural drawing
     let radiusVariance = 0;
     points.forEach(point => {
       const radius = Math.sqrt(Math.pow(point.x - centerX, 2) + Math.pow(point.y - centerY, 2));
@@ -165,12 +165,31 @@ const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
     });
     radiusVariance /= points.length;
     
-    // More strict tolerance for better circle detection
-    return radiusVariance < avgRadius * 0.25 && avgRadius > 25;
+    // Check for circular curvature consistency
+    let curvatureScore = 0;
+    for (let i = 2; i < points.length - 2; i++) {
+      const p1 = points[i - 2];
+      const p2 = points[i];
+      const p3 = points[i + 2];
+      
+      // Calculate angle between three points
+      const angle1 = Math.atan2(p2.y - p1.y, p2.x - p1.x);
+      const angle2 = Math.atan2(p3.y - p2.y, p3.x - p2.x);
+      let angleDiff = Math.abs(angle2 - angle1);
+      if (angleDiff > Math.PI) angleDiff = 2 * Math.PI - angleDiff;
+      
+      // Expect consistent angular change for circle
+      if (angleDiff > 0.3 && angleDiff < 1.5) curvatureScore++;
+    }
+    
+    // Enhanced circle detection with curvature analysis
+    return radiusVariance < avgRadius * 0.35 && 
+           avgRadius > 20 && 
+           curvatureScore > points.length * 0.3;
   };
 
   const detectSquareGesture = (points: Array<{ x: number; y: number; time: number }>): boolean => {
-    if (points.length < 12) return false;
+    if (points.length < 10) return false;
     
     // Find bounding box
     const minX = Math.min(...points.map(p => p.x));
@@ -181,31 +200,32 @@ const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
     const width = maxX - minX;
     const height = maxY - minY;
     
-    // Require minimum size and reasonable proportions
-    if (width < 40 || height < 40) return false;
+    // Require minimum size and reasonable proportions for square/rectangle
+    if (width < 30 || height < 30) return false;
     const aspectRatio = Math.max(width, height) / Math.min(width, height);
-    if (aspectRatio > 1.6) return false;
+    if (aspectRatio > 2.0) return false; // Allow more rectangular shapes
     
     // Check closure (should end near start for complete square)
     const firstPoint = points[0];
     const lastPoint = points[points.length - 1];
     const closureDistance = Math.sqrt(Math.pow(lastPoint.x - firstPoint.x, 2) + Math.pow(lastPoint.y - firstPoint.y, 2));
-    if (closureDistance > Math.max(width, height) * 0.3) return false;
+    if (closureDistance > Math.max(width, height) * 0.4) return false;
     
-    // Detect corners by looking for significant direction changes
+    // Enhanced corner detection with better angle thresholds
     let corners = 0;
-    const cornerThreshold = Math.PI / 2.5; // About 72 degrees
+    let cornerPositions: number[] = [];
+    const cornerThreshold = Math.PI / 3; // About 60 degrees - more lenient
     
-    for (let i = 3; i < points.length - 3; i++) {
-      const dx1 = points[i].x - points[i - 3].x;
-      const dy1 = points[i].y - points[i - 3].y;
-      const dx2 = points[i + 3].x - points[i].x;
-      const dy2 = points[i + 3].y - points[i].y;
+    for (let i = 4; i < points.length - 4; i++) {
+      const dx1 = points[i].x - points[i - 4].x;
+      const dy1 = points[i].y - points[i - 4].y;
+      const dx2 = points[i + 4].x - points[i].x;
+      const dy2 = points[i + 4].y - points[i].y;
       
       // Skip if segments are too short
       const len1 = Math.sqrt(dx1 * dx1 + dy1 * dy1);
       const len2 = Math.sqrt(dx2 * dx2 + dy2 * dy2);
-      if (len1 < 15 || len2 < 15) continue;
+      if (len1 < 10 || len2 < 10) continue;
       
       const angle1 = Math.atan2(dy1, dx1);
       const angle2 = Math.atan2(dy2, dx2);
@@ -218,40 +238,69 @@ const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
       
       // Detect corners (significant direction changes)
       if (angleDiff > cornerThreshold) {
-        corners++;
+        // Ensure corners are spaced apart to avoid duplicate detection
+        const tooClose = cornerPositions.some(pos => Math.abs(i - pos) < 6);
+        if (!tooClose) {
+          corners++;
+          cornerPositions.push(i);
+        }
       }
     }
     
-    // Require at least 3 corners for square-like shape
-    return corners >= 3;
+    // Check for roughly straight lines between corners
+    let straightLineScore = 0;
+    for (let i = 1; i < points.length - 1; i++) {
+      const p1 = points[i - 1];
+      const p2 = points[i];
+      const p3 = points[i + 1];
+      
+      // Calculate deviation from straight line
+      const lineAngle = Math.atan2(p3.y - p1.y, p3.x - p1.x);
+      const pointAngle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
+      let deviation = Math.abs(pointAngle - lineAngle);
+      if (deviation > Math.PI) deviation = 2 * Math.PI - deviation;
+      
+      if (deviation < Math.PI / 6) straightLineScore++; // 30 degrees tolerance
+    }
+    
+    // Require at least 3 corners and some straight line segments
+    return corners >= 3 && corners <= 6 && straightLineScore > points.length * 0.4;
   };
 
   const detectZigZagGesture = (points: Array<{ x: number; y: number; time: number }>): boolean => {
-    if (points.length < 6) return false;
+    if (points.length < 8) return false;
     
     let directionChanges = 0;
-    let lastDirection: number | null = null;
+    let changePositions: number[] = [];
     let totalDistance = 0;
+    let segmentDistances: number[] = [];
     
-    // Calculate total distance to ensure meaningful gesture
+    // Calculate total distance and segment distances
     for (let i = 1; i < points.length; i++) {
       const dx = points[i].x - points[i - 1].x;
       const dy = points[i].y - points[i - 1].y;
-      totalDistance += Math.sqrt(dx * dx + dy * dy);
+      const distance = Math.sqrt(dx * dx + dy * dy);
+      totalDistance += distance;
+      segmentDistances.push(distance);
     }
     
     // Require minimum distance for valid zig-zag
-    if (totalDistance < 80) return false;
+    if (totalDistance < 60) return false;
     
-    for (let i = 2; i < points.length - 1; i++) {
-      const dx1 = points[i].x - points[i - 1].x;
-      const dy1 = points[i].y - points[i - 1].y;
-      const dx2 = points[i + 1].x - points[i].x;
-      const dy2 = points[i + 1].y - points[i].y;
+    // Enhanced direction change detection with minimum distance requirements
+    for (let i = 3; i < points.length - 3; i++) {
+      // Use larger segments for more stable direction detection
+      const dx1 = points[i].x - points[i - 3].x;
+      const dy1 = points[i].y - points[i - 3].y;
+      const dx2 = points[i + 3].x - points[i].x;
+      const dy2 = points[i + 3].y - points[i].y;
       
-      // Skip very small movements
-      if (Math.abs(dx1) < 8 && Math.abs(dy1) < 8) continue;
-      if (Math.abs(dx2) < 8 && Math.abs(dy2) < 8) continue;
+      // Calculate distances to ensure meaningful segments
+      const dist1 = Math.sqrt(dx1 * dx1 + dy1 * dy1);
+      const dist2 = Math.sqrt(dx2 * dx2 + dy2 * dy2);
+      
+      // Skip if segments are too short (minimum distance requirement)
+      if (dist1 < 15 || dist2 < 15) continue;
       
       // Calculate angles
       const angle1 = Math.atan2(dy1, dx1);
@@ -263,14 +312,39 @@ const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
         angleDiff = 2 * Math.PI - angleDiff;
       }
       
-      // Detect sharp direction changes (more than 45 degrees)
-      if (angleDiff > Math.PI / 4) {
-        directionChanges++;
+      // Detect sharp direction changes (more than 40 degrees but less than 140 degrees)
+      if (angleDiff > Math.PI / 4.5 && angleDiff < (3 * Math.PI / 4)) {
+        // Ensure changes are spaced apart to avoid false positives
+        const tooClose = changePositions.some(pos => Math.abs(i - pos) < 8);
+        if (!tooClose) {
+          directionChanges++;
+          changePositions.push(i);
+        }
       }
     }
     
-    // Require at least 3 direction changes for zig-zag
-    return directionChanges >= 3;
+    // Additional validation: check alternating pattern
+    let alternatingScore = 0;
+    if (changePositions.length >= 3) {
+      for (let i = 1; i < changePositions.length - 1; i++) {
+        const pos1 = changePositions[i - 1];
+        const pos2 = changePositions[i];
+        const pos3 = changePositions[i + 1];
+        
+        // Check if the pattern alternates direction
+        const dir1 = Math.atan2(points[pos2].y - points[pos1].y, points[pos2].x - points[pos1].x);
+        const dir2 = Math.atan2(points[pos3].y - points[pos2].y, points[pos3].x - points[pos2].x);
+        
+        let dirDiff = Math.abs(dir2 - dir1);
+        if (dirDiff > Math.PI) dirDiff = 2 * Math.PI - dirDiff;
+        
+        // Award points for alternating pattern
+        if (dirDiff > Math.PI / 3) alternatingScore++;
+      }
+    }
+    
+    // Require at least 3-4 direction changes with sufficient magnitude and alternating pattern
+    return directionChanges >= 3 && directionChanges <= 8 && alternatingScore >= 2;
   };
 
   const getMagicToolMode = (pressure: number, currentTool: DrawingTool): 'medium' | 'high' | 'low' => {
@@ -413,55 +487,69 @@ const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
     const pressure = e.pressure || 0.5;
     setCurrentPressure(pressure);
     
-    // Update gesture tracking
+    // Update gesture tracking with real-time detection
     const newGesturePoints = [...gesturePoints, { x, y, time: Date.now() }];
-    setGesturePoints(newGesturePoints.slice(-20)); // Keep more points for better detection
+    setGesturePoints(newGesturePoints.slice(-25)); // Keep more points for better detection
     
-    // Check for gesture-based mode switching (Magic Pencil only)
-    if (activeTool === 'magic' && newGesturePoints.length >= 6) {
+    // Enhanced real-time gesture detection (Magic Pencil only)
+    if (activeTool === 'magic' && newGesturePoints.length >= 5) {
       let gestureDetected = false;
       let newMode = magicToolMode;
+      let detectionPriority = 0; // Higher number = higher priority
       
+      // Continuous gesture detection with priority system
       if (detectZigZagGesture(newGesturePoints)) {
         newMode = 'low';
         gestureDetected = true;
+        detectionPriority = 3; // High priority for zig-zag
         toast({
           title: "Zig-zag detected! 📐",
           description: "Switched to Low relevance (blue)",
-          duration: 1500,
+          duration: 1000,
         });
-      } else if (detectCircleGesture(newGesturePoints)) {
+      } 
+      
+      if (detectCircleGesture(newGesturePoints)) {
         newMode = 'high';
         gestureDetected = true;
+        detectionPriority = 2; // Medium priority for circle
         toast({
           title: "Circle detected! ⭕",
           description: "Switched to High relevance (red)",
-          duration: 1500,
+          duration: 1000,
         });
-      } else if (detectSquareGesture(newGesturePoints)) {
+      } 
+      
+      if (detectSquareGesture(newGesturePoints)) {
         newMode = 'medium';
         gestureDetected = true;
+        detectionPriority = 1; // Lower priority for square
         toast({
           title: "Square detected! ⬜", 
           description: "Switched to Medium relevance (orange)",
-          duration: 1500,
+          duration: 1000,
         });
       }
       
-      // Apply gesture detection and update stroke color immediately
+      // Apply gesture detection with immediate highlight switching
       if (gestureDetected && newMode !== magicToolMode) {
         setMagicToolMode(newMode);
         
-        // Update current stroke color immediately
+        // Update current stroke color immediately for instant visual feedback
         const newColor = getDrawingColor('magic', pressure, newMode);
         ctx.strokeStyle = newColor;
         ctx.shadowColor = newColor;
         
-        // Clear gesture points and add delay to prevent multiple detections
+        // Begin new path with new color to avoid color mixing
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        
+        // Shorter gesture reset for faster re-detection
         setGesturePoints([]);
         setTimeout(() => {
           setGesturePoints([{ x, y, time: Date.now() }]);
-        }, 500);
+        }, 200); // Reduced delay for faster re-detection
       }
     }
     
