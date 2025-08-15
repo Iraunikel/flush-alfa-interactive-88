@@ -40,7 +40,7 @@ const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
   const [magicToolMode, setMagicToolMode] = useState<'idle' | 'medium' | 'high' | 'low'>('idle');
   const [debugEnabled, setDebugEnabled] = useState<boolean>(true);
   const [debugLogs, setDebugLogs] = useState<string[]>([]);
-  const [debugSnapshot, setDebugSnapshot] = useState<{ points: number; zigzag: boolean; circle: boolean; square: boolean; mode: string }>({ points: 0, zigzag: false, circle: false, square: false, mode: 'idle' });
+  const [debugSnapshot, setDebugSnapshot] = useState<{ points: number; zigzag: boolean; circle: boolean; square: boolean; mode: string; widthPx: number; heightPx: number; aspect: number; closure: number; flips: number; corners: number }>({ points: 0, zigzag: false, circle: false, square: false, mode: 'idle', widthPx: 0, heightPx: 0, aspect: 0, closure: 0, flips: 0, corners: 0 });
   const { toast } = useToast();
 
   // Initialize dual-layer canvas system
@@ -381,12 +381,10 @@ const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
     // Update gesture tracking with real-time detection (keep only recent points)
     let updatedPoints: Array<{ x: number; y: number; time: number }> = [];
     setGesturePoints((prev) => {
-      updatedPoints = [...prev, { x, y, time: Date.now() }].slice(-40);
+      updatedPoints = [...prev, { x, y, time: Date.now() }].slice(-200);
       return updatedPoints;
     });
-    if (debugEnabled) {
-      setDebugSnapshot((prev) => ({ ...prev, points: updatedPoints.length }));
-    }
+    if (debugEnabled) setDebugSnapshot((prev) => ({ ...prev, points: updatedPoints.length }));
 
     // Add gesture detection flag scope
     let gestureDetected = false;
@@ -396,12 +394,22 @@ const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
     if (activeTool === 'magic' && updatedPoints.length >= 6) {
       
       // Debug logging
+      // Compute simple bbox for debug
+      const xs = updatedPoints.map(p => p.x);
+      const ys = updatedPoints.map(p => p.y);
+      const minX = Math.min(...xs);
+      const maxX = Math.max(...xs);
+      const minY = Math.min(...ys);
+      const maxY = Math.max(...ys);
+      const dbgWidth = maxX - minX;
+      const dbgHeight = maxY - minY;
+      const dbgAspect = Math.max(dbgWidth, dbgHeight) / Math.max(1, Math.min(dbgWidth, dbgHeight));
       const isZigZag = detectZigZagGesture(updatedPoints);
       const isCircle = detectCircleGesture(updatedPoints);
       const isSquare = detectSquareGesture(updatedPoints);
       if (debugEnabled) {
-        setDebugSnapshot({ points: updatedPoints.length, zigzag: isZigZag, circle: isCircle, square: isSquare, mode: magicToolMode });
-        setDebugLogs((prev) => [`points=${updatedPoints.length} z:${isZigZag} c:${isCircle} s:${isSquare} mode:${magicToolMode}`, ...prev].slice(0, 50));
+        setDebugSnapshot({ points: updatedPoints.length, zigzag: isZigZag, circle: isCircle, square: isSquare, mode: magicToolMode, widthPx: dbgWidth, heightPx: dbgHeight, aspect: dbgAspect, closure: 0, flips: 0, corners: 0 });
+        setDebugLogs((prev) => [`points=${updatedPoints.length} bbox=${Math.round(dbgWidth)}x${Math.round(dbgHeight)} ar=${dbgAspect.toFixed(2)} mode=${magicToolMode}`, ...prev].slice(0, 200));
       }
       
       // Check for zig-zag first (Low relevance)
@@ -449,7 +457,7 @@ const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
         ctx.lineWidth = newStrokeWidth;
         ctx.shadowColor = newColor;
         ctx.beginPath();
-        if (debugEnabled) setDebugLogs((prev) => [`APPLY: mode=${newMode}, color=${newColor}`, ...prev].slice(0, 50));
+        if (debugEnabled) setDebugLogs((prev) => [`APPLY: mode=${newMode}, color=${newColor}`, ...prev].slice(0, 200));
         
         // Reset gesture tracking without clearing completely
         setGesturePoints([{ x, y, time: Date.now() }]);
@@ -476,7 +484,7 @@ const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
         ctx.shadowColor = color;
         ctx.shadowBlur = strokeWidth * 0.8;
       }
-      if (debugEnabled) setDebugLogs((prev) => [`DRAW: color=${color} width=${strokeWidth} mode=${currentMagicMode}`, ...prev].slice(0, 50));
+      if (debugEnabled) setDebugLogs((prev) => [`DRAW: color=${color} width=${strokeWidth} mode=${currentMagicMode}`, ...prev].slice(0, 200));
     }
     
     ctx.lineTo(x, y);
@@ -724,9 +732,11 @@ const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
                 <span>circle: {String(debugSnapshot.circle)}</span>
                 <span>square: {String(debugSnapshot.square)}</span>
                 <span>mode: {debugSnapshot.mode}</span>
+                <span>w×h: {Math.round(debugSnapshot.widthPx)}×{Math.round(debugSnapshot.heightPx)}</span>
+                <span>ar: {debugSnapshot.aspect.toFixed(2)}</span>
               </div>
-              <div className="mt-2 max-h-28 overflow-auto">
-                {debugLogs.slice(0, 8).map((l, i) => (
+              <div className="mt-2 max-h-40 overflow-auto">
+                {debugLogs.slice(0, 30).map((l, i) => (
                   <div key={i}>{l}</div>
                 ))}
               </div>
