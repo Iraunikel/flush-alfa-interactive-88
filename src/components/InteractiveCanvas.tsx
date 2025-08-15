@@ -20,6 +20,35 @@ interface InteractiveCanvasProps {
   className?: string;
 }
 
+interface Point {
+  x: number;
+  y: number;
+  time: number;
+}
+
+interface DebugSnapshot {
+  points: number;
+  zigzag: boolean;
+  circle: boolean;
+  square: boolean;
+  mode: string;
+  widthPx: number;
+  heightPx: number;
+  aspect: number;
+  closure: number;
+  flips: number;
+  corners: number;
+  quadrants: number;
+  rawX: number;
+  rawY: number;
+  x: number;
+  y: number;
+  scaleX: number;
+  scaleY: number;
+  canvasW: number;
+  canvasH: number;
+}
+
 const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
   text,
   onAnnotationsChange,
@@ -36,11 +65,16 @@ const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
   const [isDrawing, setIsDrawing] = useState(false);
   const [lastPos, setLastPos] = useState({ x: 0, y: 0 });
   const [currentPressure, setCurrentPressure] = useState(0.5);
-  const [gesturePoints, setGesturePoints] = useState<Array<{ x: number; y: number; time: number }>>([]);
+  const [gesturePoints, setGesturePoints] = useState<Point[]>([]);
   const [magicToolMode, setMagicToolMode] = useState<'idle' | 'medium' | 'high' | 'low'>('idle');
   const [debugEnabled, setDebugEnabled] = useState<boolean>(true);
   const [debugLogs, setDebugLogs] = useState<string[]>([]);
-  const [debugSnapshot, setDebugSnapshot] = useState<{ points: number; zigzag: boolean; circle: boolean; square: boolean; mode: string; widthPx: number; heightPx: number; aspect: number; closure: number; flips: number; corners: number; quadrants: number; rawX: number; rawY: number; x: number; y: number; scaleX: number; scaleY: number; canvasW: number; canvasH: number }>({ points: 0, zigzag: false, circle: false, square: false, mode: 'idle', widthPx: 0, heightPx: 0, aspect: 0, closure: 0, flips: 0, corners: 0, quadrants: 0, rawX: 0, rawY: 0, x: 0, y: 0, scaleX: 1, scaleY: 1, canvasW: 0, canvasH: 0 });
+  const [debugSnapshot, setDebugSnapshot] = useState<DebugSnapshot>({ 
+    points: 0, zigzag: false, circle: false, square: false, mode: 'idle', 
+    widthPx: 0, heightPx: 0, aspect: 0, closure: 0, flips: 0, corners: 0, 
+    quadrants: 0, rawX: 0, rawY: 0, x: 0, y: 0, scaleX: 1, scaleY: 1, 
+    canvasW: 0, canvasH: 0 
+  });
   const { toast } = useToast();
 
   // Initialize dual-layer canvas system
@@ -125,117 +159,192 @@ const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
     });
   };
 
-  // Enhanced Gesture Detection Functions
-  const detectCircleGesture = (points: Array<{ x: number; y: number; time: number }>): boolean => {
-    if (points.length < 8) return false;
+  // Debug snapshot update with comprehensive tracking
+  const addDebugLog = useCallback((message: string) => {
+    if (!debugEnabled) return;
+    setDebugLogs(prev => [...prev.slice(-19), `${new Date().toLocaleTimeString()}: ${message}`]);
+  }, [debugEnabled]);
+
+  // Update debug snapshot with all trackable data
+  const updateDebugSnapshot = useCallback((updates: Partial<DebugSnapshot>) => {
+    setDebugSnapshot(prev => ({ ...prev, ...updates }));
+  }, []);
+
+  // Enhanced zig-zag detection with comprehensive tracking
+  const detectZigZagGesture = useCallback((points: Point[]): boolean => {
+    if (points.length < 10) {
+      addDebugLog(`ZigZag: Insufficient points (${points.length}/10)`);
+      return false;
+    }
+    
+    let directionChanges = 0;
+    let previousDirection: 'up' | 'down' | null = null;
+    const directions: string[] = [];
+    let totalVerticalMovement = 0;
+    let horizontalSpread = 0;
+    
+    if (points.length > 0) {
+      const xCoords = points.map(p => p.x);
+      horizontalSpread = Math.max(...xCoords) - Math.min(...xCoords);
+    }
+    
+    for (let i = 1; i < points.length; i++) {
+      const yDiff = points[i].y - points[i - 1].y;
+      totalVerticalMovement += Math.abs(yDiff);
+      
+      if (Math.abs(yDiff) > 5) { // Threshold for meaningful direction change
+        const currentDirection = yDiff > 0 ? 'down' : 'up';
+        directions.push(currentDirection);
+        
+        if (previousDirection && previousDirection !== currentDirection) {
+          directionChanges++;
+        }
+        previousDirection = currentDirection;
+      }
+    }
+    
+    const isZigZag = directionChanges >= 3;
+    const avgVerticalMovement = totalVerticalMovement / (points.length - 1);
+    
+    updateDebugSnapshot({ 
+      flips: directionChanges,
+      quadrants: directions.length
+    });
+    
+    addDebugLog(`ZigZag Analysis: ${directionChanges} flips, ${totalVerticalMovement.toFixed(1)}px vertical, ${horizontalSpread.toFixed(1)}px horizontal, avg: ${avgVerticalMovement.toFixed(1)}, pattern: [${directions.slice(-5).join(',')}], result: ${isZigZag}`);
+    return isZigZag;
+  }, [addDebugLog, updateDebugSnapshot]);
+
+  // Enhanced circle detection with detailed tracking
+  const detectCircleGesture = useCallback((points: Point[]): boolean => {
+    if (points.length < 15) {
+      addDebugLog(`Circle: Insufficient points (${points.length}/15)`);
+      return false;
+    }
+    
+    // Calculate bounding box and center
+    const minX = Math.min(...points.map(p => p.x));
+    const maxX = Math.max(...points.map(p => p.x));
+    const minY = Math.min(...points.map(p => p.y));
+    const maxY = Math.max(...points.map(p => p.y));
+    
+    const centerX = (minX + maxX) / 2;
+    const centerY = (minY + maxY) / 2;
+    const width = maxX - minX;
+    const height = maxY - minY;
+    
+    // Check if shape is roughly circular (aspect ratio close to 1)
+    const aspectRatio = Math.min(width, height) / Math.max(width, height);
+    
+    // Check closure - distance between first and last points
+    const closure = Math.sqrt(
+      Math.pow(points[0].x - points[points.length - 1].x, 2) +
+      Math.pow(points[0].y - points[points.length - 1].y, 2)
+    );
+    const avgRadius = (width + height) / 4;
+    const closureRatio = closure / avgRadius;
+    
+    // Calculate distance variation from center
+    const distances = points.map(p => 
+      Math.sqrt(Math.pow(p.x - centerX, 2) + Math.pow(p.y - centerY, 2))
+    );
+    const avgDistance = distances.reduce((a, b) => a + b, 0) / distances.length;
+    const variance = distances.reduce((sum, d) => sum + Math.pow(d - avgDistance, 2), 0) / distances.length;
+    const stdDev = Math.sqrt(variance);
+    const consistency = 1 - (stdDev / avgDistance);
+    
+    // Check quadrant coverage
+    const quadrants = [0, 0, 0, 0]; // top-right, top-left, bottom-left, bottom-right
+    points.forEach(p => {
+      if (p.x >= centerX && p.y <= centerY) quadrants[0] = 1; // top-right
+      if (p.x < centerX && p.y <= centerY) quadrants[1] = 1;  // top-left
+      if (p.x < centerX && p.y > centerY) quadrants[2] = 1;   // bottom-left
+      if (p.x >= centerX && p.y > centerY) quadrants[3] = 1;  // bottom-right
+    });
+    const quadrantCoverage = quadrants.reduce((a, b) => a + b, 0);
+    
+    const isCircle = aspectRatio >= 0.6 && closureRatio < 0.5 && consistency > 0.6 && quadrantCoverage >= 3;
+    
+    updateDebugSnapshot({ 
+      aspect: aspectRatio,
+      closure: closureRatio,
+      quadrants: quadrantCoverage
+    });
+    
+    addDebugLog(`Circle Analysis: ${width.toFixed(1)}×${height.toFixed(1)}px, aspect: ${aspectRatio.toFixed(2)}, closure: ${closure.toFixed(1)}px (${closureRatio.toFixed(2)}), consistency: ${consistency.toFixed(2)}, quadrants: ${quadrantCoverage}/4, center: (${centerX.toFixed(1)}, ${centerY.toFixed(1)}), avgR: ${avgRadius.toFixed(1)}, result: ${isCircle}`);
+    return isCircle;
+  }, [addDebugLog, updateDebugSnapshot]);
+
+  // Enhanced square detection with corner analysis
+  const detectSquareGesture = useCallback((points: Point[]): boolean => {
+    if (points.length < 20) {
+      addDebugLog(`Square: Insufficient points (${points.length}/20)`);
+      return false;
+    }
     
     // Calculate bounding box
     const minX = Math.min(...points.map(p => p.x));
     const maxX = Math.max(...points.map(p => p.x));
     const minY = Math.min(...points.map(p => p.y));
     const maxY = Math.max(...points.map(p => p.y));
+    
     const width = maxX - minX;
     const height = maxY - minY;
     
-    // Require minimum size and roughly circular proportions (very lenient for desktop)
-    if (width < 6 || height < 6) return false;
-    const aspectRatio = Math.max(width, height) / Math.min(width, height);
-    if (aspectRatio > 4.0) return false;
+    // Check aspect ratio for square-like shape
+    const aspectRatio = Math.min(width, height) / Math.max(width, height);
     
-    // Simple circular motion detection - check if path curves around
-    const centerX = (minX + maxX) / 2;
-    const centerY = (minY + maxY) / 2;
+    // Check for corners by looking for direction changes
+    let corners = 0;
+    let straightSegments = 0;
+    const cornerDetails: Array<{index: number, angle: number, pos: string}> = [];
+    const threshold = Math.min(width, height) * 0.1; // 10% of smallest dimension
     
-    // Count points in different quadrants
-    let quadrants = [0, 0, 0, 0];
-    points.forEach(point => {
-      const dx = point.x - centerX;
-      const dy = point.y - centerY;
+    for (let i = 5; i < points.length - 5; i++) {
+      const prev = points[i - 5];
+      const curr = points[i];
+      const next = points[i + 5];
       
-      if (dx >= 0 && dy >= 0) quadrants[0]++;      // Top-right
-      else if (dx < 0 && dy >= 0) quadrants[1]++;  // Top-left
-      else if (dx < 0 && dy < 0) quadrants[2]++;   // Bottom-left
-      else quadrants[3]++;                         // Bottom-right
+      const angle1 = Math.atan2(curr.y - prev.y, curr.x - prev.x);
+      const angle2 = Math.atan2(next.y - curr.y, next.x - curr.x);
+      let angleDiff = Math.abs(angle2 - angle1);
+      
+      if (angleDiff > Math.PI) angleDiff = 2 * Math.PI - angleDiff;
+      
+      // Check for sharp turns (corners)
+      if (angleDiff > Math.PI / 3) { // > 60 degrees
+        corners++;
+        const angleInDegrees = (angleDiff * 180 / Math.PI);
+        const position = `(${curr.x.toFixed(0)},${curr.y.toFixed(0)})`;
+        cornerDetails.push({index: i, angle: angleInDegrees, pos: position});
+      }
+      
+      // Check for straight segments
+      if (angleDiff < Math.PI / 12) { // < 15 degrees (fairly straight)
+        straightSegments++;
+      }
+    }
+    
+    // Check closure
+    const closure = Math.sqrt(
+      Math.pow(points[0].x - points[points.length - 1].x, 2) +
+      Math.pow(points[0].y - points[points.length - 1].y, 2)
+    );
+    const diagonal = Math.sqrt(width * width + height * height);
+    const closureRatio = closure / diagonal;
+    
+    const isSquare = aspectRatio >= 0.7 && corners >= 3 && closureRatio < 0.3;
+    
+    updateDebugSnapshot({ 
+      corners: corners,
+      aspect: aspectRatio,
+      closure: closureRatio
     });
     
-    // Must have points in at least 3 quadrants for circular motion
-    const activeQuadrants = quadrants.filter(q => q > 0).length;
-    
-    // Also check if we have some closure (start and end points reasonably close)
-    const firstPoint = points[0];
-    const lastPoint = points[points.length - 1];
-    const closureDistance = Math.sqrt(Math.pow(lastPoint.x - firstPoint.x, 2) + Math.pow(lastPoint.y - firstPoint.y, 2));
-    const maxDimension = Math.max(width, height);
-    
-    return activeQuadrants >= 3 && closureDistance < maxDimension * 0.95;
-  };
-
-  const detectSquareGesture = (points: Array<{ x: number; y: number; time: number }>): boolean => {
-    if (points.length < 8) return false;
-    
-    // Find bounding box
-    const minX = Math.min(...points.map(p => p.x));
-    const maxX = Math.max(...points.map(p => p.x));
-    const minY = Math.min(...points.map(p => p.y));
-    const maxY = Math.max(...points.map(p => p.y));
-    
-    const width = maxX - minX;
-    const height = maxY - minY;
-    
-    // Require minimum size and reasonable proportions for square/rectangle (very lenient)
-    if (width < 6 || height < 6) return false;
-    const aspectRatio = Math.max(width, height) / Math.min(width, height);
-    if (aspectRatio > 5.0) return false;
-    
-    // Check closure (should end near start for complete square) - relaxed
-    const firstPoint = points[0];
-    const lastPoint = points[points.length - 1];
-    const closureDistance = Math.sqrt(Math.pow(lastPoint.x - firstPoint.x, 2) + Math.pow(lastPoint.y - firstPoint.y, 2));
-    if (closureDistance > Math.max(width, height) * 0.98) return false;
-    
-    // Simplified corner detection
-    let corners = 0;
-    let i = 4;
-    while (i < points.length - 4) {
-      const dx1 = points[i].x - points[i - 4].x;
-      const dy1 = points[i].y - points[i - 4].y;
-      const dx2 = points[i + 4].x - points[i].x;
-      const dy2 = points[i + 4].y - points[i].y;
-      const len1 = Math.sqrt(dx1 * dx1 + dy1 * dy1);
-      const len2 = Math.sqrt(dx2 * dx2 + dy2 * dy2);
-      if (len1 >= 6 && len2 >= 6) {
-        const angle1 = Math.atan2(dy1, dx1);
-        const angle2 = Math.atan2(dy2, dx2);
-        let angleDiff = Math.abs(angle2 - angle1);
-        if (angleDiff > Math.PI) angleDiff = 2 * Math.PI - angleDiff;
-        if (angleDiff > Math.PI / 3) corners = corners + 1;
-      }
-      i = i + 2;
-    }
-    return corners >= 3;
-  };
-
-  const detectZigZagGesture = (points: Array<{ x: number; y: number; time: number }>): boolean => {
-    if (points.length < 6) return false;
-    
-    let directionChanges = 0;
-    let lastDirection: 'up' | 'down' | null = null;
-    let i = 2;
-    while (i < points.length) {
-      const currentY = points[i].y;
-      const previousY = points[i - 2].y;
-      const deltaY = currentY - previousY;
-      if (Math.abs(deltaY) >= 1) {
-        const currentDirection = deltaY > 0 ? 'down' : 'up';
-        if (lastDirection && lastDirection !== currentDirection) {
-          directionChanges++;
-        }
-        lastDirection = currentDirection;
-      }
-      i = i + 1;
-    }
-    return directionChanges >= 2;
-  };
+    const cornerPositions = cornerDetails.slice(0, 4).map(c => `${c.pos}:${c.angle.toFixed(0)}°`).join(', ');
+    addDebugLog(`Square Analysis: ${width.toFixed(1)}×${height.toFixed(1)}px, aspect: ${aspectRatio.toFixed(2)}, corners: ${corners} [${cornerPositions}], straight: ${straightSegments}, closure: ${closure.toFixed(1)}px (${closureRatio.toFixed(2)}), result: ${isSquare}`);
+    return isSquare;
+  }, [addDebugLog, updateDebugSnapshot]);
 
   const getMagicToolMode = (pressure: number, currentTool: DrawingTool): 'medium' | 'high' | 'low' => {
     if (currentTool !== 'magic') return 'medium';
@@ -358,7 +467,7 @@ const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
     
     ctx.beginPath();
     ctx.moveTo(x, y);
-  }, [activeTool]);
+  }, [activeTool, magicToolMode]);
 
   const draw = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
     if (!isDrawing || activeTool === 'pan') return;
@@ -378,98 +487,86 @@ const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
     const pressure = e.pressure || 0.5;
     setCurrentPressure(pressure);
     
-    // Update gesture tracking with real-time detection (keep only recent points)
-    let updatedPoints: Array<{ x: number; y: number; time: number }> = [];
-    setGesturePoints((prev) => {
-      updatedPoints = [...prev, { x, y, time: Date.now() }].slice(-200);
-      return updatedPoints;
-    });
-    if (debugEnabled) setDebugSnapshot((prev) => ({ ...prev, points: updatedPoints.length }));
-
+    // Update comprehensive debug snapshot with current drawing state
+    const canvas = annotationCanvas;
+    
     // Add gesture detection flag scope
     let gestureDetected = false;
-    let newMode: 'medium' | 'high' | 'low' | null = null;
-
-    // Real-time gesture detection for Magic Pencil - reduced threshold for faster detection
-    if (activeTool === 'magic' && updatedPoints.length >= 6) {
+    
+    // Track gesture points for magic tool with detailed analysis
+    if (activeTool === 'magic') {
+      const newPoint = { x, y, time: Date.now() };
+      const updatedPoints = [...gesturePoints, newPoint];
+      setGesturePoints(updatedPoints);
       
-      // Debug logging
-      // Compute simple bbox for debug
-      const xs = updatedPoints.map(p => p.x);
-      const ys = updatedPoints.map(p => p.y);
-      const minX = Math.min(...xs);
-      const maxX = Math.max(...xs);
-      const minY = Math.min(...ys);
-      const maxY = Math.max(...ys);
-      const dbgWidth = maxX - minX;
-      const dbgHeight = maxY - minY;
-      const dbgAspect = Math.max(dbgWidth, dbgHeight) / Math.max(1, Math.min(dbgWidth, dbgHeight));
-      const isZigZag = detectZigZagGesture(updatedPoints);
-      const isCircle = detectCircleGesture(updatedPoints);
-      const isSquare = detectSquareGesture(updatedPoints);
-      if (debugEnabled) {
-        setDebugSnapshot({ points: updatedPoints.length, zigzag: isZigZag, circle: isCircle, square: isSquare, mode: magicToolMode, widthPx: dbgWidth, heightPx: dbgHeight, aspect: dbgAspect, closure: 0, flips: 0, corners: 0 });
-        setDebugLogs((prev) => [`points=${updatedPoints.length} bbox=${Math.round(dbgWidth)}x${Math.round(dbgHeight)} ar=${dbgAspect.toFixed(2)} mode=${magicToolMode}`, ...prev].slice(0, 200));
-      }
+      // Log coordinate details for debugging
+      addDebugLog(`📍 Point #${updatedPoints.length}: Raw(${e.clientX}, ${e.clientY}) → Canvas(${x.toFixed(1)}, ${y.toFixed(1)}) | Scale: ${scaleX.toFixed(2)}×${scaleY.toFixed(2)} | Canvas: ${canvas.width}×${canvas.height}`);
       
-      // Check for zig-zag first (Low relevance)
-      if (isZigZag) {
+      // Try to detect gestures with priority: Zig-Zag > Circle > Square
+      let newMode: typeof magicToolMode = 'idle';
+      let gestureDetected = false;
+      let detectedColor = '';
+      let gestureType = '';
+      
+      // GESTURE RECOGNITION ANCHOR POINT - Track detection attempts
+      addDebugLog(`🔍 GESTURE ANALYSIS START - Points: ${updatedPoints.length}, Current mode: ${magicToolMode}`);
+      
+      if (detectZigZagGesture(updatedPoints)) {
         newMode = 'low';
         gestureDetected = true;
-        if (debugEnabled) setDebugLogs((prev) => ["DETECTED: zigzag -> low", ...prev].slice(0, 50));
+        detectedColor = getDrawingColor('magic', pressure, 'low');
+        gestureType = 'ZIG-ZAG';
+        addDebugLog('✅ 🔵 ZIG-ZAG DETECTED - Switching to LOW relevance (blue)');
         toast({
-          title: "Zig-zag gesture detected!",
-          description: "Switched to Low relevance (Blue)",
+          title: "Zig-Zag Detected!",
+          description: "Switched to Low relevance mode (blue)",
           duration: 1500,
         });
-      }
-      // Then check for circle (High relevance)
-      else if (isCircle) {
+      } else if (detectCircleGesture(updatedPoints)) {
         newMode = 'high';
         gestureDetected = true;
-        if (debugEnabled) setDebugLogs((prev) => ["DETECTED: circle -> high", ...prev].slice(0, 50));
+        detectedColor = getDrawingColor('magic', pressure, 'high');
+        gestureType = 'CIRCLE';
+        addDebugLog('✅ 🔴 CIRCLE DETECTED - Switching to HIGH relevance (red)');
         toast({
-          title: "Circle gesture detected!",
-          description: "Switched to High relevance (Red)",
+          title: "Circle Detected!",
+          description: "Switched to High relevance mode (red)",
           duration: 1500,
         });
-      }
-      // Finally check for square (Medium relevance)
-      else if (isSquare) {
+      } else if (detectSquareGesture(updatedPoints)) {
         newMode = 'medium';
         gestureDetected = true;
-        if (debugEnabled) setDebugLogs((prev) => ["DETECTED: square -> medium", ...prev].slice(0, 50));
+        detectedColor = getDrawingColor('magic', pressure, 'medium');
+        gestureType = 'SQUARE';
+        addDebugLog('✅ 🟠 SQUARE DETECTED - Switching to MEDIUM relevance (orange)');
         toast({
-          title: "Square gesture detected!",
-          description: "Switched to Medium relevance (Orange)",
+          title: "Square Detected!",
+          description: "Switched to Medium relevance mode (orange)",
           duration: 1500,
         });
+      } else {
+        addDebugLog(`❌ No gesture detected with ${updatedPoints.length} points`);
       }
-
-      // Apply gesture detection immediately
-      if (newMode && newMode !== magicToolMode) {
+      
+      if (gestureDetected && newMode !== magicToolMode) {
+        addDebugLog(`🎯 GESTURE ANCHOR: ${gestureType} confirmed at point ${updatedPoints.length}, switching ${magicToolMode} → ${newMode}`);
         setMagicToolMode(newMode);
         
-        // Get new color and apply immediately
-        const newColor = getDrawingColor('magic', pressure, newMode);
-        const newStrokeWidth = getStrokeWidth(pressure, 'medium');
-        ctx.strokeStyle = newColor;
-        ctx.lineWidth = newStrokeWidth;
-        ctx.shadowColor = newColor;
+        // Apply new color immediately
+        ctx.strokeStyle = detectedColor;
+        ctx.shadowColor = detectedColor;
         ctx.beginPath();
-        if (debugEnabled) setDebugLogs((prev) => [`APPLY: mode=${newMode}, color=${newColor}`, ...prev].slice(0, 200));
         
         // Reset gesture tracking without clearing completely
         setGesturePoints([{ x, y, time: Date.now() }]);
+        
+        addDebugLog(`🎨 Color switch applied: ${detectedColor}, Path reset, tracking restarted`);
       }
     }
-    
-    // Handle Magic Pencil mode - use the newly detected mode if gesture was detected
+
+    // Handle Magic Pencil mode - keep current mode during drawing to prevent flickering
     let effectiveTool = activeTool;
-    let currentMagicMode: 'idle' | 'medium' | 'high' | 'low' = magicToolMode;
-    if (gestureDetected && newMode) {
-      currentMagicMode = newMode;
-    }
+    let currentMagicMode = magicToolMode;
 
     // Only set color if gesture was NOT just detected to prevent override
     if (!gestureDetected) {
@@ -484,266 +581,281 @@ const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
         ctx.shadowColor = color;
         ctx.shadowBlur = strokeWidth * 0.8;
       }
-      if (debugEnabled) setDebugLogs((prev) => [`DRAW: color=${color} width=${strokeWidth} mode=${currentMagicMode}`, ...prev].slice(0, 200));
     }
-    
+
+    // Continue drawing stroke
     ctx.lineTo(x, y);
     ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x, y);
     
     setLastPos({ x, y });
-  }, [isDrawing, activeTool, magicToolMode]);
 
-  const stopDrawing = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
+    // Update debug snapshot with current state
+    updateDebugSnapshot({
+      points: gesturePoints.length,
+      rawX: e.clientX,
+      rawY: e.clientY,
+      x: x,
+      y: y,
+      scaleX: scaleX,
+      scaleY: scaleY,
+      canvasW: canvas.width,
+      canvasH: canvas.height,
+      mode: magicToolMode
+    });
+  }, [isDrawing, activeTool, magicToolMode, gesturePoints, detectZigZagGesture, detectCircleGesture, detectSquareGesture, addDebugLog, updateDebugSnapshot, toast]);
+
+  const stopDrawing = useCallback(() => {
     if (!isDrawing) return;
-
-    setIsDrawing(false);
-    setIsPencilActive(false);
-    setCurrentPressure(0.5);
-    setGesturePoints([]);
-
-    // Use the selected tool for annotation counting
-    const pressure = e.pressure || 0.5;
-    let effectiveTool = activeTool;
-    let annotationType: 'high' | 'medium' | 'low' | 'neutral' = 'medium';
     
-    if (activeTool === 'magic') {
-      // Convert magic mode to annotation type; idle means neutral
-      if (magicToolMode === 'idle') {
-        annotationType = 'neutral';
-      } else {
-        annotationType = magicToolMode;
-      }
-      // Don't reset magic tool mode - let it persist
-    } else if (effectiveTool !== 'eraser' && effectiveTool !== 'pan') {
-      annotationType = effectiveTool as 'high' | 'medium' | 'low' | 'neutral';
+    setIsDrawing(false);
+    
+    const ctx = annotationContextRef.current;
+    if (ctx) {
+      ctx.closePath();
     }
-
-    // Create annotation record
-    const annotation: CanvasAnnotation = {
-      id: `annotation-${Date.now()}-${Math.random()}`,
-      type: annotationType,
-      pressure: pressure,
-      timestamp: Date.now(),
-      bounds: {
-        x: lastPos.x,
-        y: lastPos.y,
-        width: 50,
-        height: 20
-      }
-    };
-
-    if (effectiveTool !== 'eraser') {
-      const newAnnotations = [...annotations, annotation];
-      setAnnotations(newAnnotations);
-      onAnnotationsChange(newAnnotations);
-    }
-  }, [isDrawing, activeTool, lastPos, annotations, onAnnotationsChange]);
-
-  const handleClearCanvas = () => {
-    const annotationCtx = annotationContextRef.current;
-    if (annotationCtx) {
-      // Clear only the annotation layer, preserve text layer
-      annotationCtx.clearRect(0, 0, annotationCtx.canvas.width, annotationCtx.canvas.height);
-      setAnnotations([]);
-      onAnnotationsChange([]);
+    
+    // Clear gesture tracking
+    setGesturePoints([]);
+    
+    // Create annotation record if drawing was substantial
+    if (activeTool !== 'eraser' && activeTool !== 'pan') {
+      const annotation: CanvasAnnotation = {
+        id: Date.now().toString(),
+        type: activeTool === 'magic' ? 
+          (magicToolMode === 'high' ? 'high' : magicToolMode === 'low' ? 'low' : 'medium') :
+          activeTool as 'high' | 'medium' | 'low' | 'neutral',
+        pressure: currentPressure,
+        timestamp: Date.now(),
+        bounds: { x: lastPos.x, y: lastPos.y, width: 50, height: 50 }
+      };
       
-      toast({
-        title: "Annotations cleared",
-        description: "All annotations removed, text preserved",
+      setAnnotations(prev => {
+        const updated = [...prev, annotation];
+        onAnnotationsChange(updated);
+        return updated;
       });
     }
+  }, [isDrawing, activeTool, magicToolMode, currentPressure, lastPos, onAnnotationsChange]);
+
+  const clearCanvas = () => {
+    const ctx = annotationContextRef.current;
+    if (ctx) {
+      ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+    }
+    setAnnotations([]);
+    setGesturePoints([]);
+    onAnnotationsChange([]);
   };
 
-  const tools: Array<{
-    id: DrawingTool;
-    label: string;
-    icon: any;
-    color: string;
-    description: string;
-  }> = [
-    {
-      id: 'magic',
-      label: 'Magic',
-      icon: Palette,
-      color: 'text-gradient-primary',
-      description: 'Smart pressure & gesture adaptive tool'
-    },
-    {
-      id: 'high',
-      label: 'High',
-      icon: Heart,
-      color: 'text-red-500',
-      description: 'High relevance'
-    },
-    {
-      id: 'medium',
-      label: 'Medium',
-      icon: ThumbsUp,
-      color: 'text-orange-500',
-      description: 'Medium relevance'
-    },
-    {
-      id: 'low',
-      label: 'Low',
-      icon: ThumbsDown,
-      color: 'text-blue-500',
-      description: 'Low relevance'
-    },
-    {
-      id: 'neutral',
-      label: 'Neutral',
-      icon: Minus,
-      color: 'text-yellow-500',
-      description: 'Neutral/No weighting'
-    },
-    {
-      id: 'eraser',
-      label: 'Erase',
-      icon: Eraser,
-      color: 'text-muted-foreground',
-      description: 'Remove annotations'
-    },
-    {
-      id: 'pan',
-      label: 'Pan',
-      icon: Hand,
-      color: 'text-muted-foreground',
-      description: 'Move around canvas'
-    }
-  ];
+  const colors = {
+    high: 'rgba(239, 68, 68, 0.8)',
+    medium: 'rgba(249, 115, 22, 0.8)', 
+    low: 'rgba(59, 130, 246, 0.8)'
+  };
 
   return (
-    <div className={`space-y-8 ${className}`}>
-      {/* Premium glassmorphism toolbar - Fixed blur issue */}
-      <div className="relative bg-card border border-border/50 rounded-3xl p-6 shadow-2xl transition-all duration-300">
-        <div className="flex flex-col sm:flex-row sm:items-center gap-4 sm:gap-6">
-          <div className="flex items-center gap-4 justify-center sm:justify-start">
-            <div className="relative w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-gradient-to-br from-annotation-high via-annotation-medium via-annotation-neutral to-annotation-low flex items-center justify-center shadow-lg">
-              <Palette className="w-5 h-5 sm:w-6 sm:h-6 text-white drop-shadow-sm" />
+    <div className={`relative w-full ${className}`}>
+      {/* Enhanced Magic Debug Console */}
+      {debugEnabled && (
+        <div className="absolute top-4 right-4 bg-black/90 text-white p-3 rounded-lg text-xs font-mono max-w-lg z-10 select-text">
+          <div className="flex justify-between items-center mb-2">
+            <span className="text-green-400 font-bold">🔍 Magic Debug Console</span>
+            <button
+              onClick={() => setDebugEnabled(false)}
+              className="text-gray-400 hover:text-white ml-2"
+            >
+              ✕
+            </button>
+          </div>
+          
+          {/* Current State */}
+          <div className="grid grid-cols-2 gap-2 mb-3 p-2 bg-gray-900/50 rounded">
+            <div>Points: <span className="text-blue-400">{debugSnapshot.points}</span></div>
+            <div>Mode: <span className="text-yellow-400">{debugSnapshot.mode}</span></div>
+            <div>Raw: <span className="text-gray-400">{debugSnapshot.rawX.toFixed(0)},{debugSnapshot.rawY.toFixed(0)}</span></div>
+            <div>Canvas: <span className="text-gray-400">{debugSnapshot.x.toFixed(0)},{debugSnapshot.y.toFixed(0)}</span></div>
+            <div>Scale: <span className="text-purple-400">{debugSnapshot.scaleX.toFixed(2)}×{debugSnapshot.scaleY.toFixed(2)}</span></div>
+            <div>Size: <span className="text-cyan-400">{debugSnapshot.canvasW}×{debugSnapshot.canvasH}</span></div>
+          </div>
+          
+          {/* Gesture Detection Status */}
+          <div className="border-t border-gray-600 pt-2 mb-3">
+            <div className="text-gray-300 font-semibold mb-1">Gesture Detection:</div>
+            <div className="grid grid-cols-3 gap-2">
+              <div>Zigzag: <span className={debugSnapshot.zigzag ? "text-blue-400" : "text-gray-500"}>{debugSnapshot.zigzag ? "✓" : "✗"}</span></div>
+              <div>Circle: <span className={debugSnapshot.circle ? "text-red-400" : "text-gray-500"}>{debugSnapshot.circle ? "✓" : "✗"}</span></div>
+              <div>Square: <span className={debugSnapshot.square ? "text-orange-400" : "text-gray-500"}>{debugSnapshot.square ? "✓" : "✗"}</span></div>
             </div>
-            <div className="text-center sm:text-left">
-              <h3 className="text-lg sm:text-xl font-bold bg-gradient-to-r from-primary to-primary-glow bg-clip-text text-transparent">
-                Smart Heatmap
-              </h3>
-              <p className="text-xs sm:text-sm text-muted-foreground flex items-center justify-center sm:justify-start gap-2">
-                {isPencilActive ? (
-                  <>
-                    <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
-                    <span className="hidden sm:inline">Apple Pencil • Pressure: {Math.round(currentPressure * 100)}%</span>
-                    <span className="sm:hidden">Pencil {Math.round(currentPressure * 100)}%</span>
-                  </>
-                ) : (
-                  <>
-                    <span className="w-2 h-2 bg-blue-500 rounded-full"></span>
-                    Touch Mode
-                  </>
-                )}
-              </p>
+            <div className="mt-1 text-xs text-gray-400">
+              Aspect: {debugSnapshot.aspect.toFixed(2)} | Closure: {debugSnapshot.closure.toFixed(2)} | Flips: {debugSnapshot.flips} | Corners: {debugSnapshot.corners} | Quads: {debugSnapshot.quadrants}
             </div>
           </div>
           
-          <div className="flex flex-wrap gap-2 justify-center sm:justify-end">
-            {tools.map((tool) => {
-              const Icon = tool.icon;
-              const isActive = activeTool === tool.id;
-              
-              return (
-                <Button
-                  key={tool.id}
-                  variant={isActive ? "default" : "ghost"}
-                  size="lg"
-                  onClick={() => setActiveTool(tool.id)}
-                  className={`
-                    relative h-12 sm:h-16 px-3 sm:px-8 text-xs sm:text-sm font-medium transition-all duration-300 rounded-2xl
-                    ${isActive 
-                      ? 'bg-primary text-primary-foreground shadow-xl shadow-primary/25 scale-105' 
-                      : 'hover:bg-accent/50 hover:scale-102'
-                    }
-                  `}
-                  title={tool.description}
-                >
-                  <Icon className={`w-4 h-4 sm:w-5 sm:h-5 sm:mr-3 ${isActive ? 'text-white' : tool.color}`} />
-                  <span className="hidden sm:inline">{tool.label}</span>
-                  {isActive && (
-                    <div className="absolute inset-0 rounded-2xl bg-gradient-to-r from-primary/20 to-primary-glow/20"></div>
-                  )}
-                </Button>
-              );
-            })}
-            
-            <Button
-              variant="outline"
-              size="lg"
-              onClick={handleClearCanvas}
-              className="h-12 sm:h-16 px-3 sm:px-8 rounded-2xl transition-all duration-300 hover:scale-102 text-xs sm:text-sm"
-              disabled={annotations.length === 0}
-            >
-              <RotateCcw className="w-4 h-4 sm:w-5 sm:h-5 sm:mr-3" />
-              <span className="hidden sm:inline">Clear</span>
-            </Button>
+          {/* Live Debug Logs */}
+          <div className="border-t border-gray-600 pt-2">
+            <div className="flex justify-between items-center mb-1">
+              <span className="text-gray-400 text-xs">Live Debug Feed:</span>
+              <button
+                onClick={() => navigator.clipboard?.writeText(debugLogs.join('\n'))}
+                className="text-xs text-blue-400 hover:text-blue-300"
+                title="Copy all logs to clipboard"
+              >
+                📋 Copy
+              </button>
+            </div>
+            <div className="max-h-40 overflow-y-auto space-y-1 bg-gray-900/30 p-2 rounded select-text">
+              {debugLogs.slice(-8).map((log, i) => (
+                <div key={i} className="text-xs text-gray-200 leading-tight select-text" style={{userSelect: 'text'}}>
+                  {log}
+                </div>
+              ))}
+            </div>
           </div>
+        </div>
+      )}
+
+      {/* Tool palette */}
+      <div className="flex flex-wrap gap-3 mb-6 p-4 bg-gradient-to-r from-background/80 to-background/60 backdrop-blur-sm rounded-2xl border shadow-lg">
+        {/* Magic Pencil */}
+        <div className="flex items-center gap-2">
+          <Button
+            onClick={() => setActiveTool('magic')}
+            variant={activeTool === 'magic' ? 'default' : 'outline'}
+            size="sm"
+            className={`relative group transition-all duration-300 ${
+              activeTool === 'magic' 
+                ? 'bg-gradient-to-r from-purple-500 to-pink-500 text-white shadow-lg scale-105' 
+                : 'hover:scale-105'
+            }`}
+          >
+            <Palette className="h-4 w-4" />
+            Magic Pencil
+            {activeTool === 'magic' && (
+              <div className="absolute -top-1 -right-1 w-3 h-3 bg-gradient-to-r from-pink-400 to-purple-400 rounded-full animate-pulse"></div>
+            )}
+          </Button>
+          {activeTool === 'magic' && (
+            <Badge 
+              variant="secondary" 
+              className={`text-xs transition-all duration-300 ${
+                magicToolMode === 'high' ? 'bg-red-100 text-red-800 border-red-200' :
+                magicToolMode === 'medium' ? 'bg-orange-100 text-orange-800 border-orange-200' :
+                magicToolMode === 'low' ? 'bg-blue-100 text-blue-800 border-blue-200' :
+                'bg-gray-100 text-gray-600 border-gray-200'
+              }`}
+            >
+              {magicToolMode === 'idle' ? 'Detecting...' : `${magicToolMode} relevance`}
+            </Badge>
+          )}
+        </div>
+
+        {/* Standard tools */}
+        <Button
+          onClick={() => setActiveTool('high')}
+          variant={activeTool === 'high' ? 'default' : 'outline'}
+          size="sm"
+          className={`transition-all duration-300 ${
+            activeTool === 'high' 
+              ? 'bg-red-500 text-white shadow-lg hover:bg-red-600 scale-105' 
+              : 'hover:scale-105'
+          }`}
+        >
+          <Heart className="h-4 w-4" />
+          High
+        </Button>
+        
+        <Button
+          onClick={() => setActiveTool('medium')}
+          variant={activeTool === 'medium' ? 'default' : 'outline'}
+          size="sm"
+          className={`transition-all duration-300 ${
+            activeTool === 'medium' 
+              ? 'bg-orange-500 text-white shadow-lg hover:bg-orange-600 scale-105' 
+              : 'hover:scale-105'
+          }`}
+        >
+          <TrendingUp className="h-4 w-4" />
+          Medium
+        </Button>
+        
+        <Button
+          onClick={() => setActiveTool('low')}
+          variant={activeTool === 'low' ? 'default' : 'outline'}
+          size="sm"
+          className={`transition-all duration-300 ${
+            activeTool === 'low' 
+              ? 'bg-blue-500 text-white shadow-lg hover:bg-blue-600 scale-105' 
+              : 'hover:scale-105'
+          }`}
+        >
+          <ThumbsDown className="h-4 w-4" />
+          Low
+        </Button>
+        
+        <Button
+          onClick={() => setActiveTool('neutral')}
+          variant={activeTool === 'neutral' ? 'default' : 'outline'}
+          size="sm"
+          className={`transition-all duration-300 ${
+            activeTool === 'neutral' 
+              ? 'bg-yellow-500 text-white shadow-lg hover:bg-yellow-600 scale-105' 
+              : 'hover:scale-105'
+          }`}
+        >
+          <Minus className="h-4 w-4" />
+          Neutral
+        </Button>
+        
+        <Button
+          onClick={() => setActiveTool('eraser')}
+          variant={activeTool === 'eraser' ? 'default' : 'outline'}
+          size="sm"
+          className={`transition-all duration-300 ${
+            activeTool === 'eraser' 
+              ? 'bg-gray-700 text-white shadow-lg hover:bg-gray-800 scale-105' 
+              : 'hover:scale-105'
+          }`}
+        >
+          <Eraser className="h-4 w-4" />
+          Eraser
+        </Button>
+        
+        <Button
+          onClick={() => setActiveTool('pan')}
+          variant={activeTool === 'pan' ? 'default' : 'outline'}
+          size="sm"
+          className={`transition-all duration-300 ${
+            activeTool === 'pan' 
+              ? 'bg-green-500 text-white shadow-lg hover:bg-green-600 scale-105' 
+              : 'hover:scale-105'
+          }`}
+        >
+          <Hand className="h-4 w-4" />
+          Pan
+        </Button>
+
+        <div className="ml-auto flex gap-2">
+          <Button onClick={clearCanvas} variant="outline" size="sm" className="hover:scale-105 transition-all duration-300">
+            <RotateCcw className="h-4 w-4" />
+            Clear
+          </Button>
+          <Button 
+            onClick={() => setDebugEnabled(!debugEnabled)} 
+            variant="outline" 
+            size="sm" 
+            className="hover:scale-105 transition-all duration-300"
+          >
+            🔍 Debug
+          </Button>
         </div>
       </div>
 
-      {/* Dual-layer canvas system */}
-      <div className="relative bg-card/50 rounded-3xl border border-border/50 shadow-2xl overflow-hidden">
-        <div className="p-8">
-          <div className="flex items-center justify-between mb-6">
-            <div className="flex items-center gap-4">
-              <h3 className="text-2xl font-bold text-foreground">AI Response Canvas</h3>
-              {annotations.length > 0 && (
-                <Badge variant="secondary" className="text-sm px-3 py-1 rounded-full bg-primary/10 text-primary border-primary/20">
-                  {annotations.length} annotation{annotations.length !== 1 ? 's' : ''}
-                </Badge>
-              )}
-            </div>
-            <div className="text-sm text-muted-foreground flex items-center gap-2">
-              {activeTool === 'magic' && (
-                <>
-                  <span className={`w-3 h-3 rounded-full ${
-                    magicToolMode === 'high' ? 'bg-red-500' : 
-                    magicToolMode === 'low' ? 'bg-blue-500' : 
-                    magicToolMode === 'medium' ? 'bg-orange-500' : 'bg-slate-400'
-                  }`}></span> 
-                  Magic Pencil
-                  <button
-                    type="button"
-                    className="ml-2 text-xs px-2 py-0.5 rounded bg-slate-100 border hover:bg-slate-200"
-                    onClick={() => setDebugEnabled((v) => !v)}
-                  >
-                    {debugEnabled ? 'Hide debug' : 'Show debug'}
-                  </button>
-                </>
-              )}
-              {activeTool === 'high' && <><span className="w-3 h-3 bg-annotation-high rounded-full"></span> High relevance</>}
-              {activeTool === 'medium' && <><span className="w-3 h-3 bg-annotation-medium rounded-full"></span> Medium relevance</>}
-              {activeTool === 'low' && <><span className="w-3 h-3 bg-annotation-low rounded-full"></span> Low relevance</>}
-              {activeTool === 'neutral' && <><span className="w-3 h-3 bg-annotation-neutral rounded-full"></span> Neutral content</>}
-              {activeTool === 'eraser' && <><span className="w-3 h-3 bg-gray-400 rounded-full"></span> Eraser active</>}
-              {activeTool === 'pan' && <><span className="w-3 h-3 bg-blue-400 rounded-full"></span> Pan mode</>}
-            </div>
-          </div>
-          
-          {debugEnabled && (
-            <div className="mt-4 p-3 rounded-xl border text-xs font-mono bg-slate-50 text-slate-700">
-              <div className="flex gap-3 flex-wrap">
-                <span>points: {debugSnapshot.points}</span>
-                <span>zigzag: {String(debugSnapshot.zigzag)}</span>
-                <span>circle: {String(debugSnapshot.circle)}</span>
-                <span>square: {String(debugSnapshot.square)}</span>
-                <span>mode: {debugSnapshot.mode}</span>
-                <span>w×h: {Math.round(debugSnapshot.widthPx)}×{Math.round(debugSnapshot.heightPx)}</span>
-                <span>ar: {debugSnapshot.aspect.toFixed(2)}</span>
-              </div>
-              <div className="mt-2 max-h-40 overflow-auto">
-                {debugLogs.slice(0, 30).map((l, i) => (
-                  <div key={i}>{l}</div>
-                ))}
-              </div>
-            </div>
-          )}
-          
-          <div className="relative border-2 border-dashed border-border/30 rounded-2xl overflow-hidden shadow-inner bg-white">
+      {/* Canvas container */}
+      <div className="relative w-full bg-white rounded-2xl shadow-xl overflow-hidden border-2 border-gray-100">
+        <div className="relative aspect-[4/3] w-full max-w-full">
+          <div className="absolute inset-0 flex items-center justify-center">
             {/* Text canvas (background layer) */}
             <canvas
               ref={textCanvasRef}
