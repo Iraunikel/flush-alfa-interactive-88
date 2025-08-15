@@ -344,7 +344,7 @@ const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
     
     // Handle Magic Pencil mode
     if (tool === 'magic') {
-      switch (magicMode || magicToolMode) {
+      switch (magicMode) {
         case 'high': 
           return `rgba(239, 68, 68, ${alpha})`;  // Red
         case 'low': 
@@ -472,93 +472,78 @@ const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
     
     // Update gesture tracking with real-time detection
     const newGesturePoints = [...gesturePoints, { x, y, time: Date.now() }];
-    setGesturePoints(newGesturePoints.slice(-25)); // Keep more points for better detection
-    
-    // Enhanced real-time gesture detection (Magic Pencil only) - More frequent checking
+    setGesturePoints(newGesturePoints);
+
+    // Add gesture detection flag scope
+    let gestureDetected = false;
+
+    // Real-time gesture detection for Magic Pencil
     if (activeTool === 'magic' && newGesturePoints.length >= 4) {
-      let gestureDetected = false;
-      let newMode = magicToolMode;
+      let newMode: 'medium' | 'high' | 'low' | null = null;
       
-      // Debug logging
-      console.log('Checking gestures with', newGesturePoints.length, 'points');
-      
-      // Check all gestures with relaxed requirements for faster detection
-      const isZigZag = detectZigZagGesture(newGesturePoints);
-      const isCircle = detectCircleGesture(newGesturePoints);
-      const isSquare = detectSquareGesture(newGesturePoints);
-      
-      console.log('Gesture detection results:', { isZigZag, isCircle, isSquare });
-      
-      // Priority: ZigZag > Circle > Square (most distinct to least distinct)
-      if (isZigZag && newMode !== 'low') {
+      // Check for zig-zag first (Low relevance)
+      if (detectZigZagGesture(newGesturePoints)) {
         newMode = 'low';
         gestureDetected = true;
-        console.log('ZigZag detected! Switching to low mode');
         toast({
-          title: "Zig-zag detected! 📐",
-          description: "Switched to Low relevance (blue)",
-          duration: 1000,
-        });
-      } else if (isCircle && newMode !== 'high') {
-        newMode = 'high';
-        gestureDetected = true;
-        console.log('Circle detected! Switching to high mode');
-        toast({
-          title: "Circle detected! ⭕",
-          description: "Switched to High relevance (red)",
-          duration: 1000,
-        });
-      } else if (isSquare && newMode !== 'medium') {
-        newMode = 'medium';
-        gestureDetected = true;
-        console.log('Square detected! Switching to medium mode');
-        toast({
-          title: "Square detected! ⬜", 
-          description: "Switched to Medium relevance (orange)",
-          duration: 1000,
+          title: "Zig-zag gesture detected!",
+          description: "Switched to Low relevance (Blue)",
+          duration: 1500,
         });
       }
-      
-      // Apply gesture detection with immediate highlight switching
-      if (gestureDetected) {
-        console.log('Applying gesture detection, switching from', magicToolMode, 'to', newMode);
+      // Then check for circle (High relevance)
+      else if (detectCircleGesture(newGesturePoints)) {
+        newMode = 'high';
+        gestureDetected = true;
+        toast({
+          title: "Circle gesture detected!",
+          description: "Switched to High relevance (Red)",
+          duration: 1500,
+        });
+      }
+      // Finally check for square (Medium relevance)
+      else if (detectSquareGesture(newGesturePoints)) {
+        newMode = 'medium';
+        gestureDetected = true;
+        toast({
+          title: "Square gesture detected!",
+          description: "Switched to Medium relevance (Orange)",
+          duration: 1500,
+        });
+      }
+
+      // Apply gesture detection immediately
+      if (newMode && newMode !== magicToolMode) {
         setMagicToolMode(newMode);
         
-        // End current path and start new one with new color
-        ctx.stroke();
-        
-        // Update stroke color immediately for instant visual feedback
+        // Get new color and apply immediately
         const newColor = getDrawingColor('magic', pressure, newMode);
-        console.log('New color:', newColor);
         ctx.strokeStyle = newColor;
         ctx.shadowColor = newColor;
-        
-        // Begin new path with new color
         ctx.beginPath();
-        ctx.moveTo(x, y);
         
-        // Clear gesture points briefly to prevent multiple detections
-        setGesturePoints([]);
-        setTimeout(() => {
-          setGesturePoints([{ x, y, time: Date.now() }]);
-        }, 100); // Reduced delay for faster re-detection
+        // Reset gesture tracking without clearing completely
+        setGesturePoints([{ x, y, time: Date.now() }]);
       }
     }
     
     // Handle Magic Pencil mode - keep current mode during drawing to prevent flickering
     let effectiveTool = activeTool;
     let currentMagicMode = magicToolMode;
-    
-    const color = getDrawingColor(effectiveTool, pressure, currentMagicMode);
-    const strokeWidth = getStrokeWidth(pressure, effectiveTool === 'magic' ? 'medium' : effectiveTool);
-    
-    ctx.strokeStyle = color;
-    ctx.lineWidth = strokeWidth;
-    
-    // Update premium glow effect
-    if (effectiveTool !== 'eraser') {
-      ctx.shadowColor = color;
-      ctx.shadowBlur = strokeWidth * 0.8;
+
+    // Only set color if gesture was NOT just detected to prevent override
+    if (!gestureDetected) {
+      const color = getDrawingColor(effectiveTool, pressure, currentMagicMode);
+      const strokeWidth = getStrokeWidth(pressure, effectiveTool === 'magic' ? 'medium' : effectiveTool);
+      
+      ctx.strokeStyle = color;
+      ctx.lineWidth = strokeWidth;
+      
+      // Update premium glow effect
+      if (effectiveTool !== 'eraser') {
+        ctx.shadowColor = color;
+        ctx.shadowBlur = strokeWidth * 0.8;
+      }
     }
     
     ctx.lineTo(x, y);
