@@ -403,10 +403,13 @@ const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
     setCurrentPressure(pressure);
     
     // Update gesture tracking with real-time detection (keep only recent points)
-    const newGesturePoints = [...gesturePoints, { x, y, time: Date.now() }].slice(-40);
-    setGesturePoints(newGesturePoints);
+    let updatedPoints: Array<{ x: number; y: number; time: number }> = [];
+    setGesturePoints((prev) => {
+      updatedPoints = [...prev, { x, y, time: Date.now() }].slice(-40);
+      return updatedPoints;
+    });
     if (debugEnabled) {
-      setDebugSnapshot((prev) => ({ ...prev, points: newGesturePoints.length }));
+      setDebugSnapshot((prev) => ({ ...prev, points: updatedPoints.length }));
     }
 
     // Add gesture detection flag scope
@@ -414,15 +417,15 @@ const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
     let newMode: 'medium' | 'high' | 'low' | null = null;
 
     // Real-time gesture detection for Magic Pencil - reduced threshold for faster detection
-    if (activeTool === 'magic' && newGesturePoints.length >= 6) {
+    if (activeTool === 'magic' && updatedPoints.length >= 6) {
       
       // Debug logging
-      const isZigZag = detectZigZagGesture(newGesturePoints);
-      const isCircle = detectCircleGesture(newGesturePoints);
-      const isSquare = detectSquareGesture(newGesturePoints);
+      const isZigZag = detectZigZagGesture(updatedPoints);
+      const isCircle = detectCircleGesture(updatedPoints);
+      const isSquare = detectSquareGesture(updatedPoints);
       if (debugEnabled) {
-        setDebugSnapshot({ points: newGesturePoints.length, zigzag: isZigZag, circle: isCircle, square: isSquare, mode: magicToolMode });
-        setDebugLogs((prev) => [`points=${newGesturePoints.length} z:${isZigZag} c:${isCircle} s:${isSquare} mode:${magicToolMode}`, ...prev].slice(0, 50));
+        setDebugSnapshot({ points: updatedPoints.length, zigzag: isZigZag, circle: isCircle, square: isSquare, mode: magicToolMode });
+        setDebugLogs((prev) => [`points=${updatedPoints.length} z:${isZigZag} c:${isCircle} s:${isSquare} mode:${magicToolMode}`, ...prev].slice(0, 50));
       }
       
       // Check for zig-zag first (Low relevance)
@@ -497,6 +500,7 @@ const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
         ctx.shadowColor = color;
         ctx.shadowBlur = strokeWidth * 0.8;
       }
+      if (debugEnabled) setDebugLogs((prev) => [`DRAW: color=${color} width=${strokeWidth} mode=${currentMagicMode}`, ...prev].slice(0, 50));
     }
     
     ctx.lineTo(x, y);
