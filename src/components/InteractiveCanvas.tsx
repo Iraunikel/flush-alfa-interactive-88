@@ -138,9 +138,9 @@ const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
     const height = maxY - minY;
     
     // Require minimum size and roughly circular proportions
-    if (width < 20 || height < 20) return false;
+    if (width < 18 || height < 18) return false;
     const aspectRatio = Math.max(width, height) / Math.min(width, height);
-    if (aspectRatio > 3.0) return false; // Very lenient
+    if (aspectRatio > 3.5) return false;
     
     // Simple circular motion detection - check if path curves around
     const centerX = (minX + maxX) / 2;
@@ -158,7 +158,7 @@ const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
       else quadrants[3]++;                         // Bottom-right
     });
     
-    // Must have points in at least 3 quadrants for circular motion (4 for complete circle)
+    // Must have points in at least 3 quadrants for circular motion
     const activeQuadrants = quadrants.filter(q => q > 0).length;
     
     // Also check if we have some closure (start and end points reasonably close)
@@ -167,7 +167,7 @@ const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
     const closureDistance = Math.sqrt(Math.pow(lastPoint.x - firstPoint.x, 2) + Math.pow(lastPoint.y - firstPoint.y, 2));
     const maxDimension = Math.max(width, height);
     
-    return activeQuadrants >= 3 && closureDistance < maxDimension * 0.6;
+    return activeQuadrants >= 3 && closureDistance < maxDimension * 0.9;
   };
 
   const detectSquareGesture = (points: Array<{ x: number; y: number; time: number }>): boolean => {
@@ -183,54 +183,36 @@ const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
     const height = maxY - minY;
     
     // Require minimum size and reasonable proportions for square/rectangle (relaxed)
-    if (width < 25 || height < 25) return false;
+    if (width < 20 || height < 20) return false;
     const aspectRatio = Math.max(width, height) / Math.min(width, height);
-    if (aspectRatio > 2.5) return false; // Even more lenient
+    if (aspectRatio > 4.0) return false;
     
     // Check closure (should end near start for complete square) - relaxed
     const firstPoint = points[0];
     const lastPoint = points[points.length - 1];
     const closureDistance = Math.sqrt(Math.pow(lastPoint.x - firstPoint.x, 2) + Math.pow(lastPoint.y - firstPoint.y, 2));
-    if (closureDistance > Math.max(width, height) * 0.5) return false;
+    if (closureDistance > Math.max(width, height) * 0.9) return false;
     
     // Simplified corner detection
     let corners = 0;
-    let cornerPositions: number[] = [];
-    const cornerThreshold = Math.PI / 4; // 45 degrees - very lenient
-    
-    for (let i = 3; i < points.length - 3; i++) {
-      const dx1 = points[i].x - points[i - 3].x;
-      const dy1 = points[i].y - points[i - 3].y;
-      const dx2 = points[i + 3].x - points[i].x;
-      const dy2 = points[i + 3].y - points[i].y;
-      
-      // Skip if segments are too short (relaxed)
+    let i = 4;
+    while (i < points.length - 4) {
+      const dx1 = points[i].x - points[i - 4].x;
+      const dy1 = points[i].y - points[i - 4].y;
+      const dx2 = points[i + 4].x - points[i].x;
+      const dy2 = points[i + 4].y - points[i].y;
       const len1 = Math.sqrt(dx1 * dx1 + dy1 * dy1);
       const len2 = Math.sqrt(dx2 * dx2 + dy2 * dy2);
-      if (len1 < 8 || len2 < 8) continue;
-      
-      const angle1 = Math.atan2(dy1, dx1);
-      const angle2 = Math.atan2(dy2, dx2);
-      let angleDiff = Math.abs(angle2 - angle1);
-      
-      // Normalize angle difference
-      if (angleDiff > Math.PI) {
-        angleDiff = 2 * Math.PI - angleDiff;
+      if (len1 >= 6 && len2 >= 6) {
+        const angle1 = Math.atan2(dy1, dx1);
+        const angle2 = Math.atan2(dy2, dx2);
+        let angleDiff = Math.abs(angle2 - angle1);
+        if (angleDiff > Math.PI) angleDiff = 2 * Math.PI - angleDiff;
+        if (angleDiff > Math.PI / 3) corners = corners + 1;
       }
-      
-      // Detect corners (significant direction changes) - more lenient
-      if (angleDiff > cornerThreshold) {
-        // Ensure corners are spaced apart (smaller spacing)
-        const tooClose = cornerPositions.some(pos => Math.abs(i - pos) < 4);
-        if (!tooClose) {
-          corners++;
-          cornerPositions.push(i);
-        }
-      }
+      i = i + 2;
     }
-    
-    // Very lenient requirements - just need some corners
-    return corners >= 2 && corners <= 8;
+    return corners >= 3;
   };
 
   const detectZigZagGesture = (points: Array<{ x: number; y: number; time: number }>): boolean => {
@@ -238,27 +220,21 @@ const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
     
     let directionChanges = 0;
     let lastDirection: 'up' | 'down' | null = null;
-    
-    // Simple vertical direction change detection
-    for (let i = 3; i < points.length; i++) {
+    let i = 2;
+    while (i < points.length) {
       const currentY = points[i].y;
-      const previousY = points[i - 3].y;
+      const previousY = points[i - 2].y;
       const deltaY = currentY - previousY;
-      
-      // Skip small movements
-      if (Math.abs(deltaY) < 5) continue;
-      
-      const currentDirection = deltaY > 0 ? 'down' : 'up';
-      
-      if (lastDirection && lastDirection !== currentDirection) {
-        directionChanges++;
+      if (Math.abs(deltaY) >= 2) {
+        const currentDirection = deltaY > 0 ? 'down' : 'up';
+        if (lastDirection && lastDirection !== currentDirection) {
+          directionChanges++;
+        }
+        lastDirection = currentDirection;
       }
-      
-      lastDirection = currentDirection;
+      i = i + 1;
     }
-    
-    // Much simpler: just need 2+ direction changes
-    return directionChanges >= 2;
+    return directionChanges >= 3;
   };
 
   const getMagicToolMode = (pressure: number, currentTool: DrawingTool): 'medium' | 'high' | 'low' => {
