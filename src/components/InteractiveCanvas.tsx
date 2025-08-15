@@ -40,7 +40,7 @@ const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
   const [magicToolMode, setMagicToolMode] = useState<'idle' | 'medium' | 'high' | 'low'>('idle');
   const [debugEnabled, setDebugEnabled] = useState<boolean>(true);
   const [debugLogs, setDebugLogs] = useState<string[]>([]);
-  const [debugSnapshot, setDebugSnapshot] = useState<{ points: number; zigzag: boolean; circle: boolean; square: boolean; mode: string; widthPx: number; heightPx: number; aspect: number; closure: number; flips: number; corners: number }>({ points: 0, zigzag: false, circle: false, square: false, mode: 'idle', widthPx: 0, heightPx: 0, aspect: 0, closure: 0, flips: 0, corners: 0 });
+  const [debugSnapshot, setDebugSnapshot] = useState<{ points: number; zigzag: boolean; circle: boolean; square: boolean; mode: string; widthPx: number; heightPx: number; aspect: number; closure: number; flips: number; corners: number; quadrants: number; rawX: number; rawY: number; x: number; y: number; scaleX: number; scaleY: number; canvasW: number; canvasH: number }>({ points: 0, zigzag: false, circle: false, square: false, mode: 'idle', widthPx: 0, heightPx: 0, aspect: 0, closure: 0, flips: 0, corners: 0, quadrants: 0, rawX: 0, rawY: 0, x: 0, y: 0, scaleX: 1, scaleY: 1, canvasW: 0, canvasH: 0 });
   const { toast } = useToast();
 
   // Initialize dual-layer canvas system
