@@ -37,7 +37,7 @@ const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
   const [lastPos, setLastPos] = useState({ x: 0, y: 0 });
   const [currentPressure, setCurrentPressure] = useState(0.5);
   const [gesturePoints, setGesturePoints] = useState<Array<{ x: number; y: number; time: number }>>([]);
-  const [magicToolMode, setMagicToolMode] = useState<'medium' | 'high' | 'low'>('medium');
+  const [magicToolMode, setMagicToolMode] = useState<'idle' | 'medium' | 'high' | 'low'>('idle');
   const { toast } = useToast();
 
   // Initialize dual-layer canvas system
@@ -266,13 +266,15 @@ const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
     return 'medium';                       // Light press → Medium (orange)
   };
 
-  const getDrawingColor = (tool: DrawingTool, pressure: number = 1, magicMode?: 'medium' | 'high' | 'low'): string => {
+  const getDrawingColor = (tool: DrawingTool, pressure: number = 1, magicMode?: 'idle' | 'medium' | 'high' | 'low'): string => {
     const intensity = Math.max(0.2, Math.min(1, pressure));
     const alpha = 0.3 + (intensity * 0.5);
     
     // Handle Magic Pencil mode
     if (tool === 'magic') {
       switch (magicMode) {
+        case 'idle':
+          return `rgba(100, 116, 139, ${alpha * 0.7})`; // Slate/gray while detecting
         case 'high': 
           return `rgba(239, 68, 68, ${alpha})`;  // Red
         case 'low': 
@@ -337,13 +339,12 @@ const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
     const pressure = e.pressure || 0.5;
     setCurrentPressure(pressure);
     
-    // Handle Magic Pencil mode
+    // Handle Magic Pencil mode — start in idle (gray) until a gesture is recognized
     let effectiveTool = activeTool;
-    let currentMagicMode = magicToolMode;
-    
+    let currentMagicMode: 'idle' | 'medium' | 'high' | 'low' = magicToolMode;
     if (activeTool === 'magic') {
-      currentMagicMode = getMagicToolMode(pressure, activeTool);
-      setMagicToolMode(currentMagicMode);
+      currentMagicMode = 'idle';
+      setMagicToolMode('idle');
     }
     
     // Initialize gesture tracking
@@ -471,7 +472,10 @@ const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
     
     // Handle Magic Pencil mode - use the newly detected mode if gesture was detected
     let effectiveTool = activeTool;
-    let currentMagicMode = gestureDetected && newMode ? newMode : magicToolMode;
+    let currentMagicMode: 'idle' | 'medium' | 'high' | 'low' = magicToolMode;
+    if (gestureDetected && newMode) {
+      currentMagicMode = newMode;
+    }
 
     // Only set color if gesture was NOT just detected to prevent override
     if (!gestureDetected) {
@@ -508,8 +512,12 @@ const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
     let annotationType: 'high' | 'medium' | 'low' | 'neutral' = 'medium';
     
     if (activeTool === 'magic') {
-      // Convert magic mode to annotation type
-      annotationType = magicToolMode;
+      // Convert magic mode to annotation type; idle means neutral
+      if (magicToolMode === 'idle') {
+        annotationType = 'neutral';
+      } else {
+        annotationType = magicToolMode;
+      }
       // Don't reset magic tool mode - let it persist
     } else if (effectiveTool !== 'eraser' && effectiveTool !== 'pan') {
       annotationType = effectiveTool as 'high' | 'medium' | 'low' | 'neutral';
@@ -654,7 +662,7 @@ const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
                     relative h-12 sm:h-16 px-3 sm:px-8 text-xs sm:text-sm font-medium transition-all duration-300 rounded-2xl
                     ${isActive 
                       ? 'bg-primary text-primary-foreground shadow-xl shadow-primary/25 scale-105' 
-                      : 'hover:bg-accent/50 hover:scale-102 backdrop-blur-sm'
+                      : 'hover:bg-accent/50 hover:scale-102'
                     }
                   `}
                   title={tool.description}
@@ -662,7 +670,7 @@ const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
                   <Icon className={`w-4 h-4 sm:w-5 sm:h-5 sm:mr-3 ${isActive ? 'text-white' : tool.color}`} />
                   <span className="hidden sm:inline">{tool.label}</span>
                   {isActive && (
-                    <div className="absolute inset-0 rounded-2xl bg-gradient-to-r from-primary/20 to-primary-glow/20 backdrop-blur-sm"></div>
+                    <div className="absolute inset-0 rounded-2xl bg-gradient-to-r from-primary/20 to-primary-glow/20"></div>
                   )}
                 </Button>
               );
@@ -672,7 +680,7 @@ const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
               variant="outline"
               size="lg"
               onClick={handleClearCanvas}
-              className="h-12 sm:h-16 px-3 sm:px-8 rounded-2xl transition-all duration-300 hover:scale-102 backdrop-blur-sm text-xs sm:text-sm"
+              className="h-12 sm:h-16 px-3 sm:px-8 rounded-2xl transition-all duration-300 hover:scale-102 text-xs sm:text-sm"
               disabled={annotations.length === 0}
             >
               <RotateCcw className="w-4 h-4 sm:w-5 sm:h-5 sm:mr-3" />
@@ -683,7 +691,7 @@ const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
       </div>
 
       {/* Dual-layer canvas system */}
-      <div className="relative bg-card/50 backdrop-blur-sm rounded-3xl border border-border/50 shadow-2xl overflow-hidden">
+      <div className="relative bg-card/50 rounded-3xl border border-border/50 shadow-2xl overflow-hidden">
         <div className="p-8">
           <div className="flex items-center justify-between mb-6">
             <div className="flex items-center gap-4">
@@ -699,9 +707,10 @@ const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
                 <>
                   <span className={`w-3 h-3 rounded-full ${
                     magicToolMode === 'high' ? 'bg-red-500' : 
-                    magicToolMode === 'low' ? 'bg-blue-500' : 'bg-orange-500'
+                    magicToolMode === 'low' ? 'bg-blue-500' : 
+                    magicToolMode === 'medium' ? 'bg-orange-500' : 'bg-slate-400'
                   }`}></span> 
-                  Magic Pencil ({magicToolMode})
+                  Magic Pencil
                 </>
               )}
               {activeTool === 'high' && <><span className="w-3 h-3 bg-annotation-high rounded-full"></span> High relevance</>}
@@ -738,8 +747,8 @@ const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
       {annotations.length > 0 && (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
           <div className="relative group">
-            <div className="absolute inset-0 bg-gradient-to-br from-annotation-high/20 to-annotation-high/10 rounded-2xl blur-xl group-hover:blur-2xl transition-all duration-300"></div>
-            <div className="relative backdrop-blur-sm bg-card/80 border border-annotation-high/20 rounded-2xl p-6 text-center hover:scale-105 transition-all duration-300">
+            <div className="absolute inset-0 bg-gradient-to-br from-annotation-high/20 to-annotation-high/10 rounded-2xl transition-all duration-300"></div>
+            <div className="relative bg-card/80 border border-annotation-high/20 rounded-2xl p-6 text-center hover:scale-105 transition-all duration-300">
               <div className="text-3xl font-bold text-annotation-high mb-2">
                 {annotations.filter(a => a.type === 'high').length}
               </div>
@@ -754,8 +763,8 @@ const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
           </div>
           
           <div className="relative group">
-            <div className="absolute inset-0 bg-gradient-to-br from-annotation-medium/20 to-annotation-medium/10 rounded-2xl blur-xl group-hover:blur-2xl transition-all duration-300"></div>
-            <div className="relative backdrop-blur-sm bg-card/80 border border-annotation-medium/20 rounded-2xl p-6 text-center hover:scale-105 transition-all duration-300">
+            <div className="absolute inset-0 bg-gradient-to-br from-annotation-medium/20 to-annotation-medium/10 rounded-2xl transition-all duration-300"></div>
+            <div className="relative bg-card/80 border border-annotation-medium/20 rounded-2xl p-6 text-center hover:scale-105 transition-all duration-300">
               <div className="text-3xl font-bold text-annotation-medium mb-2">
                 {annotations.filter(a => a.type === 'medium').length}
               </div>
@@ -770,8 +779,8 @@ const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
           </div>
           
           <div className="relative group">
-            <div className="absolute inset-0 bg-gradient-to-br from-annotation-low/20 to-annotation-low/10 rounded-2xl blur-xl group-hover:blur-2xl transition-all duration-300"></div>
-            <div className="relative backdrop-blur-sm bg-card/80 border border-annotation-low/20 rounded-2xl p-6 text-center hover:scale-105 transition-all duration-300">
+            <div className="absolute inset-0 bg-gradient-to-br from-annotation-low/20 to-annotation-low/10 rounded-2xl transition-all duration-300"></div>
+            <div className="relative bg-card/80 border border-annotation-low/20 rounded-2xl p-6 text-center hover:scale-105 transition-all duration-300">
               <div className="text-3xl font-bold text-annotation-low mb-2">
                 {annotations.filter(a => a.type === 'low').length}
               </div>
@@ -786,8 +795,8 @@ const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
           </div>
           
           <div className="relative group">
-            <div className="absolute inset-0 bg-gradient-to-br from-annotation-neutral/20 to-annotation-neutral/10 rounded-2xl blur-xl group-hover:blur-2xl transition-all duration-300"></div>
-            <div className="relative backdrop-blur-sm bg-card/80 border border-annotation-neutral/20 rounded-2xl p-6 text-center hover:scale-105 transition-all duration-300">
+            <div className="absolute inset-0 bg-gradient-to-br from-annotation-neutral/20 to-annotation-neutral/10 rounded-2xl transition-all duration-300"></div>
+            <div className="relative bg-card/80 border border-annotation-neutral/20 rounded-2xl p-6 text-center hover:scale-105 transition-all duration-300">
               <div className="text-3xl font-bold text-annotation-neutral mb-2">
                 {annotations.filter(a => a.type === 'neutral').length}
               </div>
