@@ -38,6 +38,9 @@ const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
   const [currentPressure, setCurrentPressure] = useState(0.5);
   const [gesturePoints, setGesturePoints] = useState<Array<{ x: number; y: number; time: number }>>([]);
   const [magicToolMode, setMagicToolMode] = useState<'idle' | 'medium' | 'high' | 'low'>('idle');
+  const [debugEnabled, setDebugEnabled] = useState<boolean>(true);
+  const [debugLogs, setDebugLogs] = useState<string[]>([]);
+  const [debugSnapshot, setDebugSnapshot] = useState<{ points: number; zigzag: boolean; circle: boolean; square: boolean; mode: string }>({ points: 0, zigzag: false, circle: false, square: false, mode: 'idle' });
   const { toast } = useToast();
 
   // Initialize dual-layer canvas system
@@ -400,8 +403,11 @@ const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
     setCurrentPressure(pressure);
     
     // Update gesture tracking with real-time detection (keep only recent points)
-    const newGesturePoints = [...gesturePoints, { x, y, time: Date.now() }].slice(-20);
+    const newGesturePoints = [...gesturePoints, { x, y, time: Date.now() }].slice(-40);
     setGesturePoints(newGesturePoints);
+    if (debugEnabled) {
+      setDebugSnapshot((prev) => ({ ...prev, points: newGesturePoints.length }));
+    }
 
     // Add gesture detection flag scope
     let gestureDetected = false;
@@ -411,19 +417,19 @@ const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
     if (activeTool === 'magic' && newGesturePoints.length >= 6) {
       
       // Debug logging
-      console.log('Gesture detection - Points:', newGesturePoints.length);
-      
       const isZigZag = detectZigZagGesture(newGesturePoints);
       const isCircle = detectCircleGesture(newGesturePoints);
       const isSquare = detectSquareGesture(newGesturePoints);
-      
-      console.log('Detection results:', { isZigZag, isCircle, isSquare });
+      if (debugEnabled) {
+        setDebugSnapshot({ points: newGesturePoints.length, zigzag: isZigZag, circle: isCircle, square: isSquare, mode: magicToolMode });
+        setDebugLogs((prev) => [`points=${newGesturePoints.length} z:${isZigZag} c:${isCircle} s:${isSquare} mode:${magicToolMode}`, ...prev].slice(0, 50));
+      }
       
       // Check for zig-zag first (Low relevance)
       if (isZigZag) {
         newMode = 'low';
         gestureDetected = true;
-        console.log('ZIG-ZAG DETECTED! Switching to low mode');
+        if (debugEnabled) setDebugLogs((prev) => ["DETECTED: zigzag -> low", ...prev].slice(0, 50));
         toast({
           title: "Zig-zag gesture detected!",
           description: "Switched to Low relevance (Blue)",
@@ -434,7 +440,7 @@ const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
       else if (isCircle) {
         newMode = 'high';
         gestureDetected = true;
-        console.log('CIRCLE DETECTED! Switching to high mode');
+        if (debugEnabled) setDebugLogs((prev) => ["DETECTED: circle -> high", ...prev].slice(0, 50));
         toast({
           title: "Circle gesture detected!",
           description: "Switched to High relevance (Red)",
@@ -445,7 +451,7 @@ const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
       else if (isSquare) {
         newMode = 'medium';
         gestureDetected = true;
-        console.log('SQUARE DETECTED! Switching to medium mode');
+        if (debugEnabled) setDebugLogs((prev) => ["DETECTED: square -> medium", ...prev].slice(0, 50));
         toast({
           title: "Square gesture detected!",
           description: "Switched to Medium relevance (Orange)",
@@ -464,6 +470,7 @@ const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
         ctx.lineWidth = newStrokeWidth;
         ctx.shadowColor = newColor;
         ctx.beginPath();
+        if (debugEnabled) setDebugLogs((prev) => [`APPLY: mode=${newMode}, color=${newColor}`, ...prev].slice(0, 50));
         
         // Reset gesture tracking without clearing completely
         setGesturePoints([{ x, y, time: Date.now() }]);
@@ -711,6 +718,13 @@ const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
                     magicToolMode === 'medium' ? 'bg-orange-500' : 'bg-slate-400'
                   }`}></span> 
                   Magic Pencil
+                  <button
+                    type="button"
+                    className="ml-2 text-xs px-2 py-0.5 rounded bg-slate-100 border hover:bg-slate-200"
+                    onClick={() => setDebugEnabled((v) => !v)}
+                  >
+                    {debugEnabled ? 'Hide debug' : 'Show debug'}
+                  </button>
                 </>
               )}
               {activeTool === 'high' && <><span className="w-3 h-3 bg-annotation-high rounded-full"></span> High relevance</>}
@@ -721,6 +735,23 @@ const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
               {activeTool === 'pan' && <><span className="w-3 h-3 bg-blue-400 rounded-full"></span> Pan mode</>}
             </div>
           </div>
+          
+          {debugEnabled && (
+            <div className="mt-4 p-3 rounded-xl border text-xs font-mono bg-slate-50 text-slate-700">
+              <div className="flex gap-3 flex-wrap">
+                <span>points: {debugSnapshot.points}</span>
+                <span>zigzag: {String(debugSnapshot.zigzag)}</span>
+                <span>circle: {String(debugSnapshot.circle)}</span>
+                <span>square: {String(debugSnapshot.square)}</span>
+                <span>mode: {debugSnapshot.mode}</span>
+              </div>
+              <div className="mt-2 max-h-28 overflow-auto">
+                {debugLogs.slice(0, 8).map((l, i) => (
+                  <div key={i}>{l}</div>
+                ))}
+              </div>
+            </div>
+          )}
           
           <div className="relative border-2 border-dashed border-border/30 rounded-2xl overflow-hidden shadow-inner bg-white">
             {/* Text canvas (background layer) */}
