@@ -137,10 +137,10 @@ const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
     const width = maxX - minX;
     const height = maxY - minY;
     
-    // Require minimum size and roughly circular proportions
-    if (width < 18 || height < 18) return false;
+    // Require minimum size and roughly circular proportions (very lenient for desktop)
+    if (width < 6 || height < 6) return false;
     const aspectRatio = Math.max(width, height) / Math.min(width, height);
-    if (aspectRatio > 3.5) return false;
+    if (aspectRatio > 4.0) return false;
     
     // Simple circular motion detection - check if path curves around
     const centerX = (minX + maxX) / 2;
@@ -167,7 +167,7 @@ const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
     const closureDistance = Math.sqrt(Math.pow(lastPoint.x - firstPoint.x, 2) + Math.pow(lastPoint.y - firstPoint.y, 2));
     const maxDimension = Math.max(width, height);
     
-    return activeQuadrants >= 3 && closureDistance < maxDimension * 0.9;
+    return activeQuadrants >= 3 && closureDistance < maxDimension * 0.95;
   };
 
   const detectSquareGesture = (points: Array<{ x: number; y: number; time: number }>): boolean => {
@@ -182,16 +182,16 @@ const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
     const width = maxX - minX;
     const height = maxY - minY;
     
-    // Require minimum size and reasonable proportions for square/rectangle (relaxed)
-    if (width < 20 || height < 20) return false;
+    // Require minimum size and reasonable proportions for square/rectangle (very lenient)
+    if (width < 6 || height < 6) return false;
     const aspectRatio = Math.max(width, height) / Math.min(width, height);
-    if (aspectRatio > 4.0) return false;
+    if (aspectRatio > 5.0) return false;
     
     // Check closure (should end near start for complete square) - relaxed
     const firstPoint = points[0];
     const lastPoint = points[points.length - 1];
     const closureDistance = Math.sqrt(Math.pow(lastPoint.x - firstPoint.x, 2) + Math.pow(lastPoint.y - firstPoint.y, 2));
-    if (closureDistance > Math.max(width, height) * 0.9) return false;
+    if (closureDistance > Math.max(width, height) * 0.98) return false;
     
     // Simplified corner detection
     let corners = 0;
@@ -225,7 +225,7 @@ const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
       const currentY = points[i].y;
       const previousY = points[i - 2].y;
       const deltaY = currentY - previousY;
-      if (Math.abs(deltaY) >= 2) {
+      if (Math.abs(deltaY) >= 1) {
         const currentDirection = deltaY > 0 ? 'down' : 'up';
         if (lastDirection && lastDirection !== currentDirection) {
           directionChanges++;
@@ -234,7 +234,7 @@ const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
       }
       i = i + 1;
     }
-    return directionChanges >= 3;
+    return directionChanges >= 2;
   };
 
   const getMagicToolMode = (pressure: number, currentTool: DrawingTool): 'medium' | 'high' | 'low' => {
