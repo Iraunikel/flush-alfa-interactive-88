@@ -476,10 +476,10 @@ const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
 
     // Add gesture detection flag scope
     let gestureDetected = false;
+    let newMode: 'medium' | 'high' | 'low' | null = null;
 
     // Real-time gesture detection for Magic Pencil
     if (activeTool === 'magic' && newGesturePoints.length >= 4) {
-      let newMode: 'medium' | 'high' | 'low' | null = null;
       
       // Check for zig-zag first (Low relevance)
       if (detectZigZagGesture(newGesturePoints)) {
@@ -518,7 +518,9 @@ const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
         
         // Get new color and apply immediately
         const newColor = getDrawingColor('magic', pressure, newMode);
+        const newStrokeWidth = getStrokeWidth(pressure, 'medium');
         ctx.strokeStyle = newColor;
+        ctx.lineWidth = newStrokeWidth;
         ctx.shadowColor = newColor;
         ctx.beginPath();
         
@@ -527,9 +529,9 @@ const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
       }
     }
     
-    // Handle Magic Pencil mode - keep current mode during drawing to prevent flickering
+    // Handle Magic Pencil mode - use the newly detected mode if gesture was detected
     let effectiveTool = activeTool;
-    let currentMagicMode = magicToolMode;
+    let currentMagicMode = gestureDetected && newMode ? newMode : magicToolMode;
 
     // Only set color if gesture was NOT just detected to prevent override
     if (!gestureDetected) {
@@ -550,7 +552,7 @@ const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
     ctx.stroke();
     
     setLastPos({ x, y });
-  }, [isDrawing, activeTool]);
+  }, [isDrawing, activeTool, magicToolMode]);
 
   const stopDrawing = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
     if (!isDrawing) return;
